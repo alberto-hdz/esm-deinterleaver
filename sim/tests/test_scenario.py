@@ -38,3 +38,36 @@ def test_seed_is_reproducible():
     _, a = build_scenario(4, 0.1, 0.02, 50, 1, seed=7)
     _, b = build_scenario(4, 0.1, 0.02, 50, 1, seed=7)
     assert np.array_equal(a["toa_us"], b["toa_us"])
+
+
+LIBRARY = Path(__file__).resolve().parents[2] / "config" / "emitter_library.csv"
+
+
+def test_library_emitters_land_in_their_windows():
+    from scenario import read_library
+    lib = {r["name"]: r for r in read_library(LIBRARY)}
+    emitters, _ = build_scenario(8, 0.1, 0.0, 200, 0, seed=4, library=list(lib.values()),
+                                 unknown_frac=0.0)
+    for e in emitters:
+        r = lib[e["name"]]
+        assert r["rf_min_mhz"] <= e["freq_mhz"] <= r["rf_max_mhz"]
+        assert r["pri_min_us"] - 1e-6 <= e["pri_us"] <= r["pri_max_us"] + 1e-6
+        assert e["pri_type"] == r["pri_type"]
+        if e["pri_type"] == "stagger":
+            assert len(e["stagger"]) == r["stagger_levels"]
+
+
+def test_library_pairs_share_rf_and_pw():
+    from scenario import read_library
+    emitters, _ = build_scenario(4, 0.1, 0.0, 200, 2, seed=5, library=read_library(LIBRARY))
+    for k in (0, 2):
+        a, b = emitters[k], emitters[k + 1]
+        assert abs(a["freq_mhz"] - b["freq_mhz"]) <= 1.0
+        assert a["name"] != "UNKNOWN" and b["name"] != "UNKNOWN"
+
+
+def test_default_mode_unchanged_by_library_code():
+    # the library option must not change what the default mode generates
+    _, a = build_scenario(6, 0.1, 0.02, 200, 1, seed=1)
+    _, b = build_scenario(6, 0.1, 0.02, 200, 1, seed=1, library=None)
+    assert np.array_equal(a["toa_us"], b["toa_us"])

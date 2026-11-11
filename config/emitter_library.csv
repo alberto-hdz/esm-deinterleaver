@@ -1,0 +1,13 @@
+name,role,rf_min_mhz,rf_max_mhz,pw_min_us,pw_max_us,pri_type,pri_min_us,pri_max_us,stagger_levels,jitter_max
+TEST-A,search,2700,2900,1.0,2.0,constant,1000,1200,0,0
+TEST-B,search,2700,2900,1.0,2.0,stagger,800,900,3,0
+TEST-C,track,9000,9400,0.2,0.5,constant,150,250,0,0
+TEST-D,track,9000,9400,0.2,0.5,jitter,300,400,0,0.08
+TEST-E,fire control,15000,16000,0.2,0.3,constant,100,140,0,0
+TEST-F,navigation,9450,9550,0.5,1.0,constant,1500,2500,0,0
+TEST-G,weather,5400,5800,1.5,3.0,constant,600,800,0,0
+TEST-H,long range search,1200,1400,20,50,stagger,2000,3000,2,0
+TEST-I,height finder,3100,3400,5,15,jitter,1200,1600,0,0.10
+TEST-J,surface search,8700,8900,0.3,0.8,stagger,400,500,4,0
+TEST-K,acquisition,3100,3400,5,15,constant,400,500,0,0
+TEST-L,tracking,16500,17000,2,4,jitter,180,220,0,0.06

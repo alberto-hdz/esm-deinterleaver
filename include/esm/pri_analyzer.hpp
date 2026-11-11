@@ -19,6 +19,7 @@ struct PriParams {
     int max_misses = 3;           // sequence search: missed pulses allowed in a row
     int min_hits = 10;            // sequence search: shortest train I accept
     double min_fill = 0.6;        // sequence search: found pulses / expected pulses
+    double min_merged_fill = 0.4; // same check after broken pieces are glued back together
     int min_pulses = 10;          // stop when fewer pulses than this are left
     double max_jitter = 0.12;     // jitter pass: widest jitter I try to follow (fraction of PRI)
     double jitter_share = 0.4;    // jitter pass: share of gaps that must agree on one PRI

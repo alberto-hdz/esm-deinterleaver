@@ -242,3 +242,21 @@ TEST(Deinterleave, LongStaggerFrame) {
     EXPECT_EQ(trains[0].type, esm::PriType::Stagger);
     EXPECT_TRUE(same_cycle(trains[0].stagger_us, iv, 1.0));
 }
+
+TEST(Deinterleave, ConstantNextToJitterAtHighLoss) {
+    // The case the identification step caught: at 30% pulse loss a constant train
+    // breaks into pieces, and with the histogram PRI the pieces drifted apart and got
+    // merged into a fake stagger. The least-squares PRI fit fixed it.
+    auto s = make_stream({245.0, 383.0}, 0.30, 14, 200000.0, {0.0, 0.045});
+    auto trains = esm::deinterleave(s.toa, {});
+    bool found = false;
+    for (const auto& tr : trains) {
+        int who = -1;
+        if (purity(tr, s, &who) >= 0.95 && who == 0) {
+            found = true;
+            EXPECT_EQ(tr.type, esm::PriType::Constant);
+            EXPECT_NEAR(tr.pri_us, 245.0, 0.01);
+        }
+    }
+    EXPECT_TRUE(found);
+}

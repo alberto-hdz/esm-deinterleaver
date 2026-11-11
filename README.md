@@ -18,6 +18,7 @@ pulses (PDWs) -> DBSCAN clustering on RF / AOA / PW -> SDIF PRI analysis + seque
 - **Clustering**: DBSCAN with an RF-sorted neighbor search, so each lookup only scans pulses within the RF tolerance
 - **PRI deinterleaving, pass 1**: sequential difference histogram (SDIF, Milojevic & Popovic 1992) to find candidate PRIs, then a sequence search that pulls each pulse train out and tolerates dropped pulses. Trains that share a PRI inside one cluster are merged into a staggered emitter, and the stagger intervals are recovered from their phases.
 - **PRI deinterleaving, pass 2**: for jittered PRIs, a tau-proportional window finds the mean PRI and jitter of the leftover pulses, then the sequence search runs again with a tolerance sized to that jitter
+- **Emitter identification**: each emitter is scored against every entry of an emitter library (`config/emitter_library.csv`, all made up) on RF, PW, PRI and PRI type. Values just outside a window still get partial credit, a weak best match is reported as UNKNOWN, and a near-tie with the runner-up is flagged as ambiguous
 
 ## Build and run
 
@@ -30,6 +31,10 @@ ctest --test-dir build --output-on-failure
 
 python sim/scenario.py --emitters 6 --seed 1 --out data/scn01
 ./build/esm_cli --pdw data/scn01/pdw.csv --show-truth
+
+# emitters drawn from the library (plus some unknown ones), identified by name
+python sim/scenario.py --emitters 8 --seed 3 --library config/emitter_library.csv --out data/lib03
+./build/esm_cli --pdw data/lib03/pdw.csv --library config/emitter_library.csv --show-truth
 ~~~
 
 ## Status
@@ -38,19 +43,27 @@ python sim/scenario.py --emitters 6 --seed 1 --out data/scn01
 - [x] Parameter clustering
 - [x] SDIF + sequence search for constant-PRI emitters
 - [x] Jittered and staggered PRIs
-- [ ] Emitter identification against a library
+- [x] Emitter identification against a library
 - [ ] Pulse detection from raw I/Q samples
 - [ ] Monte Carlo scoring and results
 
 ## Results so far
 
-30 random scenarios, 8 emitters each (2 pairs forced to share RF, AOA and PW), 10% pulse loss, 2% spurious pulses. An emitter counts as found if one output emitter holds at least 80% of its pulses at 90% purity. Reproduce with `python sim/score.py --cli build/esm_cli --runs 30`.
+Each run is 30 random scenarios, 8 emitters each (2 pairs forced to share RF, AOA and PW), 2% spurious pulses. An emitter counts as found if one output emitter holds at least 80% of its pulses at 90% purity. Reproduce with `python sim/score.py --cli build/esm_cli --runs 30` (add `--drop 0.3` or `--library config/emitter_library.csv`).
 
-| PRI type | found |
+| PRI type | found, 10% pulse loss | found, 30% pulse loss |
+|---|---|---|
+| constant | 120 / 120 | 119 / 120 |
+| jitter   | 68 / 76   | 67 / 76   |
+| stagger  | 42 / 44   | 43 / 44   |
+
+Identification, with emitters drawn from the library and 25% of them unknown (not in the library), 10% pulse loss:
+
+| | count |
 |---|---|
-| constant | 120 / 120 |
-| jitter   | 68 / 76 |
-| stagger  | 42 / 44 |
+| library emitters given the right name | 206 / 206 |
+| unknown emitters reported as UNKNOWN | 31 / 31 |
+| wrong names | 0 |
 
 ## Known limitations
 

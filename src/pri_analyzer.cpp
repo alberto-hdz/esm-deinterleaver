@@ -39,6 +39,35 @@ double refine_pri(const std::vector<double>& toa, const std::vector<bool>& avail
     return n > 0 ? sum / n : tau;
 }
 
+// Least-squares line through a train: toa = t0 + slot * pri, where slot is the
+// pulse's position on the PRI grid (dropped pulses just leave gaps in the slots).
+// The histogram only gets the PRI to about 0.05 us. Over 800 pulses that error adds
+// up to 40 us, which broke both the piece merging below and the stagger phases.
+// A fit over the whole train gets it to a tiny fraction of that.
+struct TrainFit {
+    double t0 = 0.0;
+    double pri = 0.0;
+};
+
+TrainFit fit_train(const std::vector<double>& toa, const std::vector<std::size_t>& pulses,
+                   double pri_guess) {
+    const double first = toa[pulses.front()];
+    double n = 0.0, sx = 0.0, sy = 0.0, sxx = 0.0, sxy = 0.0;
+    for (std::size_t j : pulses) {
+        const double x = std::round((toa[j] - first) / pri_guess);
+        const double y = toa[j] - first;
+        n += 1.0;
+        sx += x;
+        sy += y;
+        sxx += x * x;
+        sxy += x * y;
+    }
+    const double den = n * sxx - sx * sx;
+    if (den <= 0.0) return {first, pri_guess};
+    const double pri = (n * sxy - sx * sy) / den;
+    return {first + (sy - pri * sx) / n, pri};
+}
+
 // Dropped pulses are random, so the holes in a real train shouldn't repeat on a
 // schedule. A 300/400/500 us stagger searched at 800 us hits 2 slots out of every
 // 3, so the fill check alone can't reject it, but its holes are always the same
@@ -177,49 +206,52 @@ std::vector<PulseTrain> sequence_search(const std::vector<double>& toa,
 
     // If more than max_misses pulses in a row get dropped, one emitter's train breaks
     // into pieces. (A unit test with 10% drop caught this: it found 3 trains for 2
-    // emitters.) I glue a piece onto another train when it sits a whole number of PRIs
-    // from that train. Two things I learned the hard way: compare against the other
-    // train's pulses nearest in time, since a 0.01 us PRI error over 140 PRIs is already
-    // 1.4 us; and use medians, since either train can end or start with a stray pulse
-    // from another emitter that the tolerance let in.
-    auto wrap = [&](double gap) { return std::abs(gap - std::round(gap / pri_us) * pri_us); };
-    auto offset_from = [&](const PulseTrain& m, std::size_t j) {
-        auto it = std::lower_bound(m.pulses.begin(), m.pulses.end(), toa[j],
-                                   [&](std::size_t a, double t) { return toa[a] < t; });
-        const auto pos = static_cast<long>(it - m.pulses.begin());
-        const long n = static_cast<long>(m.pulses.size());
-        std::vector<double> off;
-        for (long q = std::max(0L, pos - 3); q < std::min(n, pos + 3); ++q) {
-            off.push_back(wrap(toa[j] - toa[m.pulses[static_cast<std::size_t>(q)]]));
-        }
-        std::nth_element(off.begin(), off.begin() + static_cast<long>(off.size() / 2), off.end());
-        return off[off.size() / 2];
-    };
+    // emitters.) I fit a line through each train and glue a piece onto a train when
+    // the piece's pulses land on that train's PRI grid. I use the median offset since
+    // a piece can start with a stray pulse from another emitter that the tolerance
+    // let in. Before the fit, I compared pieces using the histogram PRI, and at 30%
+    // pulse loss the drift made a constant emitter come out as a fake stagger.
+    auto wrap = [](double d, double pri) { return std::abs(d - std::round(d / pri) * pri); };
     std::vector<PulseTrain> merged;
     for (auto& tr : trains) {
         bool joined = false;
         for (auto& m : merged) {
+            const TrainFit f = fit_train(toa, m.pulses, m.pri_us);
             std::vector<double> off;
-            for (std::size_t j : tr.pulses) off.push_back(offset_from(m, j));
+            for (std::size_t j : tr.pulses) off.push_back(wrap(toa[j] - f.t0, f.pri));
             std::nth_element(off.begin(), off.begin() + static_cast<long>(off.size() / 2), off.end());
             if (off[off.size() / 2] <= p.tol_us) {
                 m.pulses.insert(m.pulses.end(), tr.pulses.begin(), tr.pulses.end());
-                std::sort(m.pulses.begin(), m.pulses.end());  // keep time order for offset_from
+                std::sort(m.pulses.begin(), m.pulses.end());
                 joined = true;
                 break;
             }
         }
         if (!joined) merged.push_back(std::move(tr));
     }
+    for (auto& m : merged) m.pri_us = fit_train(toa, m.pulses, m.pri_us).pri;
 
     // If any train at this PRI has holes on a schedule, the PRI itself is a stagger
     // artifact. Short pieces at the same PRI can slip past the hole test (too few holes
     // to be sure), so I throw out everything found at this PRI.
     for (auto& m : merged) {
-        std::sort(m.pulses.begin(), m.pulses.end());
         if (has_periodic_holes(toa, m.pulses, pri_us)) return {};
     }
-    return merged;
+
+    // Each piece passed the fill check on its own, but glued together they can still
+    // be mostly holes: in a test-seed sweep, two short runs of stagger pulses 80 ms
+    // apart came out as a "constant 400 us" train with 49 pulses over 200 slots. A real
+    // train that broke apart is still about (1 - pulse loss) full, so I use a looser
+    // bar than min_fill here. The jitter pass skips this: its pieces are already
+    // allowed wide gaps, and the check cost it 5 of 50 jittered emitters at 30% loss.
+    std::vector<PulseTrain> full;
+    for (auto& m : merged) {
+        const double span = toa[m.pulses.back()] - toa[m.pulses.front()];
+        const double slots = std::round(span / m.pri_us) + 1.0;
+        const double fill = static_cast<double>(m.pulses.size()) / slots;
+        if (p.tol_growth > 0.0 || fill >= p.min_merged_fill) full.push_back(std::move(m));
+    }
+    return full;
 }
 
 PulseTrain merge_stagger(const std::vector<double>& toa, std::vector<PulseTrain> trains,
@@ -360,14 +392,19 @@ std::vector<PulseTrain> deinterleave(const std::vector<double>& toa, const PriPa
                 // (Two constant emitters with the exact same PRI would also get merged.
                 // From timing alone those look identical to a 2-level stagger.)
                 if (trains.size() >= 2) {
-                    auto st = merge_stagger(toa, std::move(trains), pri);
+                    // every slot repeats at the frame period; average their fitted PRIs
+                    double frame = 0.0;
+                    for (const auto& t : trains) frame += t.pri_us;
+                    frame /= static_cast<double>(trains.size());
+                    auto st = merge_stagger(toa, std::move(trains), frame);
+
                     // If the slots are evenly spaced it was never a stagger. It's one
                     // constant train found at a multiple of its PRI (e.g. 620 us for a
                     // 310 us emitter, which shows up as two trains half a frame apart).
                     const auto [lo, hi] = std::minmax_element(st.stagger_us.begin(), st.stagger_us.end());
                     if (*hi - *lo <= 2.0 * p.tol_us) {
                         st.type = PriType::Constant;
-                        st.pri_us = pri / static_cast<double>(st.stagger_us.size());
+                        st.pri_us = frame / static_cast<double>(st.stagger_us.size());
                         st.stagger_us.clear();
                     }
                     take(std::move(st));
@@ -376,6 +413,39 @@ std::vector<PulseTrain> deinterleave(const std::vector<double>& toa, const PriPa
                 }
             }
         }
+    }
+
+    // Pick up stragglers. Pieces of a train shorter than min_hits never get accepted
+    // on their own, so their pulses are still sitting here. If a leftover pulse lands
+    // a whole number of periods from a nearby pulse of a train I already have, it's
+    // that train's. For a stagger the period is the frame, so it has to match the same
+    // slot. On a 300/400/500 us stagger test this took it from 390 to 439 of its pulses.
+    auto wrap = [](double d, double period) { return std::abs(d - std::round(d / period) * period); };
+    for (auto& tr : result) {
+        const double period = tr.pri_us;
+        const long look = tr.type == PriType::Stagger ? 2 * static_cast<long>(tr.stagger_us.size()) : 2;
+        std::vector<std::size_t> add;
+        for (std::size_t j = 0; j < toa.size(); ++j) {
+            if (!available[j]) continue;
+            auto it = std::lower_bound(tr.pulses.begin(), tr.pulses.end(), toa[j],
+                                       [&](std::size_t a, double t) { return toa[a] < t; });
+            const long pos = static_cast<long>(it - tr.pulses.begin());
+            const long n = static_cast<long>(tr.pulses.size());
+            for (long q = std::max(0L, pos - look); q < std::min(n, pos + look); ++q) {
+                const double d = toa[j] - toa[tr.pulses[static_cast<std::size_t>(q)]];
+                // only compare to pulses within a few periods, so PRI error can't build up
+                if (std::abs(d) <= 4.0 * period && wrap(d, period) <= p.tol_us) {
+                    add.push_back(j);
+                    break;
+                }
+            }
+        }
+        for (std::size_t j : add) {
+            available[j] = false;
+            --remaining;
+            tr.pulses.push_back(j);
+        }
+        std::sort(tr.pulses.begin(), tr.pulses.end());
     }
 
     // Pass 2, jitter: SDIF with a 1.5 us tolerance can't follow a PRI that moves
