@@ -236,13 +236,6 @@ docs/                     result plots
   pulses) because more PRI candidates clear the threshold. In 200 ms windows it isn't
   a problem.
 
-## References
-
-- D. J. Milojević and B. M. Popović, "Improved algorithm for the deinterleaving of
-  radar pulses," *IEE Proceedings F*, vol. 139, no. 1, pp. 98–104, 1992. (SDIF)
-- M. Ester, H.-P. Kriegel, J. Sander and X. Xu, "A density-based algorithm for
-  discovering clusters in large spatial databases with noise," *Proc. KDD*, 1996. (DBSCAN)
-
 ## License
 
 MIT, see [LICENSE](LICENSE).
