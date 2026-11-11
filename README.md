@@ -16,7 +16,8 @@ pulses (PDWs) -> DBSCAN clustering on RF / AOA / PW -> SDIF PRI analysis + seque
 
 - **PDW** (Pulse Descriptor Word): time of arrival, RF, pulse width, amplitude, and angle of arrival for one pulse
 - **Clustering**: DBSCAN with an RF-sorted neighbor search, so each lookup only scans pulses within the RF tolerance
-- **PRI deinterleaving**: sequential difference histogram (SDIF, Milojevic & Popovic 1992) to find candidate PRIs, then a sequence search that pulls each pulse train out and tolerates dropped pulses
+- **PRI deinterleaving, pass 1**: sequential difference histogram (SDIF, Milojevic & Popovic 1992) to find candidate PRIs, then a sequence search that pulls each pulse train out and tolerates dropped pulses. Trains that share a PRI inside one cluster are merged into a staggered emitter, and the stagger intervals are recovered from their phases.
+- **PRI deinterleaving, pass 2**: for jittered PRIs, a tau-proportional window finds the mean PRI and jitter of the leftover pulses, then the sequence search runs again with a tolerance sized to that jitter
 
 ## Build and run
 
@@ -36,12 +37,23 @@ python sim/scenario.py --emitters 6 --seed 1 --out data/scn01
 - [x] Scenario simulator (constant, jittered, and staggered PRIs; pulse loss; spurious pulses)
 - [x] Parameter clustering
 - [x] SDIF + sequence search for constant-PRI emitters
-- [ ] Jittered and staggered PRIs (PRI transform, stagger detection)
+- [x] Jittered and staggered PRIs
 - [ ] Emitter identification against a library
 - [ ] Pulse detection from raw I/Q samples
 - [ ] Monte Carlo scoring and results
 
-## Known limitations (for now)
+## Results so far
 
-- Jittered PRIs aren't separated yet. The fixed sequence-search tolerance can't follow them, so their pulses are reported as one group with no PRI.
-- A staggered emitter comes out as several trains at its frame period instead of one emitter.
+30 random scenarios, 8 emitters each (2 pairs forced to share RF, AOA and PW), 10% pulse loss, 2% spurious pulses. An emitter counts as found if one output emitter holds at least 80% of its pulses at 90% purity. Reproduce with `python sim/score.py --cli build/esm_cli --runs 30`.
+
+| PRI type | found |
+|---|---|
+| constant | 120 / 120 |
+| jitter   | 68 / 76 |
+| stagger  | 42 / 44 |
+
+## Known limitations
+
+- Two jittered emitters in the same cluster usually aren't separated; the jitter pass needs most of the leftover gaps to agree on one PRI.
+- Two constant emitters with exactly the same PRI in one cluster get merged into a 2-level stagger. From timing alone those look identical.
+- A 2-level stagger whose intervals are within a few percent of each other can be reported as jitter.

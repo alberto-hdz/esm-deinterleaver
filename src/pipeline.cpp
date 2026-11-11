@@ -50,6 +50,9 @@ PipelineResult run_pipeline(const std::vector<Pdw>& pdws, const ClusterParams& c
             e.id = static_cast<int>(res.emitters.size());
             e.cluster = c;
             e.pri_us = tr.pri_us;
+            e.pri_type = tr.type;
+            e.jitter = tr.jitter;
+            e.stagger_us = tr.stagger_us;
             for (std::size_t k : tr.pulses) {
                 e.pulses.push_back(members[k]);  // map back to the original PDW index
                 assigned[k] = true;

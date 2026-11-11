@@ -66,20 +66,29 @@ int main(int argc, char** argv) {
         std::printf("pipeline %d clusters -> %zu emitters, %ld pulses unassigned, %.1f ms\n\n",
                     res.clusters, res.emitters.size(), unassigned, ms_since(t0));
 
-        std::printf("%-4s %4s %7s %10s %8s %7s %9s%s\n", "id", "clus", "pulses", "RF MHz",
-                    "PW us", "AOA", "PRI us", show_truth ? "   truth ids (count)" : "");
+        std::printf("%-4s %4s %7s %10s %8s %7s  %-30s%s\n", "id", "clus", "pulses", "RF MHz",
+                    "PW us", "AOA", "PRI", show_truth ? " truth ids (count)" : "");
         for (const auto& e : res.emitters) {
-            std::printf("T%-3d C%-3d %7zu %10.1f %8.2f %7.1f ", e.id, e.cluster, e.pulses.size(),
+            std::printf("T%-3d C%-3d %7zu %10.1f %8.2f %7.1f  ", e.id, e.cluster, e.pulses.size(),
                         e.freq_mhz, e.pw_us, e.aoa_deg);
-            if (e.pri_us > 0.0) {
-                std::printf("%9.2f", e.pri_us);
+            // PRI column: what kind of PRI it is and its numbers
+            char pri[64];
+            if (e.pri_us <= 0.0) {
+                std::snprintf(pri, sizeof(pri), "none");
+            } else if (e.pri_type == esm::PriType::Jitter) {
+                std::snprintf(pri, sizeof(pri), "jitter %.1f +/-%.1f%%", e.pri_us, 100.0 * e.jitter);
+            } else if (e.pri_type == esm::PriType::Stagger) {
+                std::string s = "stagger";
+                for (double v : e.stagger_us) s += " " + std::to_string(static_cast<int>(v + 0.5));
+                std::snprintf(pri, sizeof(pri), "%s", s.c_str());
             } else {
-                std::printf("%9s", "none");
+                std::snprintf(pri, sizeof(pri), "constant %.2f", e.pri_us);
             }
+            std::printf("%-30s", pri);
             if (show_truth) {
                 std::map<int, int> truth;
                 for (std::size_t i : e.pulses) ++truth[pdws[i].truth_id];
-                std::printf("  ");
+                std::printf(" ");
                 for (const auto& [id, cnt] : truth) std::printf(" E%d(%d)", id, cnt);
             }
             std::printf("\n");
