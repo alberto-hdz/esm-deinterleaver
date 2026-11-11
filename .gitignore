@@ -1,0 +1,7 @@
+.venv/
+build*/
+__pycache__/
+*.c64
+data/*/
+docs/*.png
+!docs/.gitkeep
