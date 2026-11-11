@@ -9,9 +9,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install build tools
-        run: sudo apt-get update && sudo apt-get install -y -o Acquire::Retries=3 cmake ninja-build libgtest-dev
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -19,10 +16,12 @@ jobs:
       - name: Install Python packages
         run: pip install numpy pytest
 
+      # CMake comes preinstalled on the runner. GoogleTest gets downloaded by
+      # CMakeLists.txt, so nothing here depends on Ubuntu's apt mirrors.
       - name: Build
         run: |
-          cmake -S . -B build -G Ninja
-          cmake --build build
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j
 
       - name: C++ tests
         run: ctest --test-dir build --output-on-failure

@@ -25,7 +25,20 @@ target_link_libraries(esm_cli PRIVATE esm)
 target_compile_options(esm_cli PRIVATE -Wall -Wextra -Wpedantic -Werror)
 
 enable_testing()
-find_package(GTest REQUIRED)
+# Use the system GoogleTest if it's installed (libgtest-dev). If not, download it.
+# CI takes the download path so it doesn't depend on Ubuntu's apt mirrors.
+find_package(GTest QUIET)
+if(NOT GTest_FOUND)
+  if(POLICY CMP0135)
+    cmake_policy(SET CMP0135 NEW)  # stops a warning about extracted file timestamps
+  endif()
+  include(FetchContent)
+  FetchContent_Declare(googletest
+    URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz)
+  set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+  set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)  # I only use gtest
+  FetchContent_MakeAvailable(googletest)
+endif()
 add_executable(esm_tests
   tests/test_pdw_io.cpp
   tests/test_clusterer.cpp
