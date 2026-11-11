@@ -14,6 +14,8 @@ endif()
 add_library(esm
   src/pdw_io.cpp
   src/clusterer.cpp
+  src/pri_analyzer.cpp
+  src/pipeline.cpp
 )
 target_include_directories(esm PUBLIC include)
 target_compile_options(esm PRIVATE -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Werror)
@@ -27,6 +29,7 @@ find_package(GTest REQUIRED)
 add_executable(esm_tests
   tests/test_pdw_io.cpp
   tests/test_clusterer.cpp
+  tests/test_pri_analyzer.cpp
 )
 target_link_libraries(esm_tests PRIVATE esm GTest::gtest_main)
 include(GoogleTest)

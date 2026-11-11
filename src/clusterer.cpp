@@ -66,6 +66,11 @@ std::vector<int> cluster_pdws(const std::vector<Pdw>& pdws, const ClusterParams&
         }
     };
 
+    // DBSCAN: a pulse with at least min_pts similar pulses around it is a "core" pulse.
+    // Each new core pulse starts a cluster, and I grow it by pulling in its neighbors,
+    // then their neighbors if they're core too, until nothing new gets added.
+    // Pulses that never end up near a core pulse stay as noise; that's where the
+    // spurious pulses from the simulator should land.
     std::vector<int> label(n, kUnvisited);
     std::vector<std::size_t> nbrs;
     std::vector<std::size_t> nbrs2;

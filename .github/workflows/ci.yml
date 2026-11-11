@@ -1,0 +1,35 @@
+name: ci
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libgtest-dev
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python packages
+        run: pip install numpy pytest
+
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja
+          cmake --build build
+
+      - name: C++ tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Python tests
+        run: pytest -q sim/tests
+
+      - name: Smoke test on a simulated scenario
+        run: |
+          python sim/scenario.py --emitters 6 --seed 1 --out data/ci
+          ./build/esm_cli --pdw data/ci/pdw.csv --show-truth
