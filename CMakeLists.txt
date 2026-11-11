@@ -17,6 +17,7 @@ add_library(esm
   src/pri_analyzer.cpp
   src/pipeline.cpp
   src/emitter_library.cpp
+  src/pulse_detector.cpp
 )
 target_include_directories(esm PUBLIC include)
 target_compile_options(esm PRIVATE -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Werror)
@@ -45,6 +46,7 @@ add_executable(esm_tests
   tests/test_clusterer.cpp
   tests/test_pri_analyzer.cpp
   tests/test_emitter_library.cpp
+  tests/test_pulse_detector.cpp
 )
 target_link_libraries(esm_tests PRIVATE esm GTest::gtest_main)
 # lets a test find config/emitter_library.csv no matter where ctest runs from

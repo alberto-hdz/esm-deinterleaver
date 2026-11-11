@@ -35,3 +35,5 @@ jobs:
           ./build/esm_cli --pdw data/ci/pdw.csv --show-truth
           python sim/scenario.py --emitters 8 --seed 3 --library config/emitter_library.csv --out data/ci_lib
           ./build/esm_cli --pdw data/ci_lib/pdw.csv --library config/emitter_library.csv --show-truth
+          python sim/iq_gen.py --seed 1 --out data/ci_iq
+          ./build/esm_cli --iq data/ci_iq/iq.c64 $(cat data/ci_iq/capture.txt)

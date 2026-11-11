@@ -1,6 +1,8 @@
-// esm_cli: runs the whole chain on a PDW file and prints the emitters it found:
-// clustering -> PRI deinterleaving -> (optional) identification against a library.
+// esm_cli: runs the whole chain and prints the emitters it found:
+// (I/Q pulse detection) -> clustering -> PRI deinterleaving -> (library identification).
+// The input is either a PDW file or a raw I/Q capture.
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <exception>
 #include <fstream>
@@ -12,13 +14,18 @@
 #include "esm/emitter_library.hpp"
 #include "esm/pdw.hpp"
 #include "esm/pipeline.hpp"
+#include "esm/pulse_detector.hpp"
 
 namespace {
 
 void usage() {
     std::fprintf(stderr,
-                 "usage: esm_cli --pdw <pdw.csv> [--library <lib.csv>] [--no-aoa] [--show-truth]\n"
-                 "               [--labels <out.csv>] [--emitters <out.csv>]\n"
+                 "usage: esm_cli --pdw <pdw.csv> [options]\n"
+                 "       esm_cli --iq <iq.c64> --fs-mhz <rate> --fc-mhz <center> [options]\n"
+                 "options: [--library <lib.csv>] [--no-aoa] [--show-truth] [--labels <out.csv>]\n"
+                 "         [--emitters <out.csv>] [--pdw-out <out.csv>]\n"
+                 "  --iq          raw complex64 capture; pulses are detected first (implies --no-aoa)\n"
+                 "  --pdw-out     write the PDWs the detector measured from the I/Q capture\n"
                  "  --library     identify each emitter against this library\n"
                  "  --no-aoa      cluster on RF and PW only\n"
                  "  --show-truth  debug: show which simulator emitters ended up in each result\n"
@@ -34,6 +41,9 @@ double ms_since(std::chrono::steady_clock::time_point t0) {
 
 int main(int argc, char** argv) {
     std::string pdw_path;
+    std::string iq_path;
+    std::string pdw_out_path;
+    esm::DetectorParams dparams;
     std::string labels_path;
     std::string library_path;
     std::string emitters_path;
@@ -44,6 +54,14 @@ int main(int argc, char** argv) {
         const std::string arg = argv[i];
         if (arg == "--pdw" && i + 1 < argc) {
             pdw_path = argv[++i];
+        } else if (arg == "--iq" && i + 1 < argc) {
+            iq_path = argv[++i];
+        } else if (arg == "--fs-mhz" && i + 1 < argc) {
+            dparams.fs_hz = std::stod(argv[++i]) * 1e6;
+        } else if (arg == "--fc-mhz" && i + 1 < argc) {
+            dparams.fc_mhz = std::stod(argv[++i]);
+        } else if (arg == "--pdw-out" && i + 1 < argc) {
+            pdw_out_path = argv[++i];
         } else if (arg == "--labels" && i + 1 < argc) {
             labels_path = argv[++i];
         } else if (arg == "--library" && i + 1 < argc) {
@@ -59,16 +77,29 @@ int main(int argc, char** argv) {
             return 2;
         }
     }
-    if (pdw_path.empty()) {
+    if (pdw_path.empty() == iq_path.empty()) {  // need exactly one input
         usage();
         return 2;
     }
 
     try {
         auto t0 = std::chrono::steady_clock::now();
-        const auto pdws = esm::read_pdw_csv(pdw_path);
-        std::printf("loaded   %zu PDWs from %s in %.1f ms\n", pdws.size(), pdw_path.c_str(),
-                    ms_since(t0));
+        std::vector<esm::Pdw> pdws;
+        if (!iq_path.empty()) {
+            const auto iq = esm::read_iq_file(iq_path);
+            esm::DetectorStats st;
+            pdws = esm::detect_pulses(iq, dparams, &st);
+            cparams.use_aoa = false;  // one antenna, no AOA
+            std::printf("detected %zu pulses in %zu samples (%.1f ms) from %s in %.1f ms, "
+                        "noise floor %.1f dB\n", pdws.size(), iq.size(),
+                        static_cast<double>(iq.size()) / dparams.fs_hz * 1e3, iq_path.c_str(),
+                        ms_since(t0), 10.0 * std::log10(st.noise_power));
+            if (!pdw_out_path.empty()) esm::write_pdw_csv(pdw_out_path, pdws);
+        } else {
+            pdws = esm::read_pdw_csv(pdw_path);
+            std::printf("loaded   %zu PDWs from %s in %.1f ms\n", pdws.size(), pdw_path.c_str(),
+                        ms_since(t0));
+        }
 
         t0 = std::chrono::steady_clock::now();
         const auto res = esm::run_pipeline(pdws, cparams, pparams);
