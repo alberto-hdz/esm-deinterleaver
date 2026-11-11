@@ -157,3 +157,14 @@ TEST(PulseDetector, ReadsComplex64File) {
     EXPECT_EQ(y[0], x[0]);
     EXPECT_EQ(y[1], x[1]);
 }
+
+TEST(PulseDetector, WeakLongPulseNotSplit) {
+    // At 7 dB SNR the smoothed power can dip under the off threshold for a few samples
+    // in the middle of a long pulse. Before the off-hold and the piece merge, some of
+    // these 8 us pulses came out as two detections.
+    std::vector<Pulse> ps;
+    for (int k = 0; k < 100; ++k) ps.push_back({20.0 + 40.0 * k, 8.0, -3.0, 7.0});
+    auto x = make_capture(4.1, ps, 11);
+    auto d = esm::detect_pulses(x, params());
+    EXPECT_EQ(d.size(), ps.size());
+}

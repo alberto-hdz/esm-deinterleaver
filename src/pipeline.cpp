@@ -1,6 +1,7 @@
 #include "esm/pipeline.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <numeric>
 #include <vector>
@@ -29,8 +30,12 @@ PipelineResult run_pipeline(const std::vector<Pdw>& pdws, const ClusterParams& c
                             const PriParams& pp) {
     PipelineResult res;
     res.pulse_label.assign(pdws.size(), -1);
+    using clock = std::chrono::steady_clock;
+    auto t0 = clock::now();
     const auto labels = cluster_pdws(pdws, cp);
     res.clusters = cluster_count(labels);
+    res.cluster_ms = std::chrono::duration<double, std::milli>(clock::now() - t0).count();
+    t0 = clock::now();
 
     for (int c = 0; c < res.clusters; ++c) {
         // Pull this cluster's pulses out and sort them by TOA. I don't assume the
@@ -73,6 +78,8 @@ PipelineResult run_pipeline(const std::vector<Pdw>& pdws, const ClusterParams& c
             res.emitters.push_back(std::move(rest));
         }
     }
+
+    res.pri_ms = std::chrono::duration<double, std::milli>(clock::now() - t0).count();
 
     for (auto& e : res.emitters) {
         fill_stats(e, pdws);

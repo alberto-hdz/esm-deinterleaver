@@ -1,0 +1,14 @@
+# Static analysis checks I run with: clang-tidy -p build src/*.cpp apps/*.cpp
+# (needs compile_commands.json, which CMakeLists.txt turns on)
+Checks: >
+  bugprone-*,
+  performance-*,
+  modernize-use-nullptr,
+  modernize-use-override,
+  readability-container-size-empty,
+  readability-redundant-string-init,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -performance-avoid-endl
+WarningsAsErrors: ''
+HeaderFilterRegex: 'include/esm/.*'

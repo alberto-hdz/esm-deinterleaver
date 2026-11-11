@@ -105,8 +105,10 @@ int main(int argc, char** argv) {
         const auto res = esm::run_pipeline(pdws, cparams, pparams);
         long unassigned = 0;
         for (int l : res.pulse_label) unassigned += (l < 0);
-        std::printf("pipeline %d clusters -> %zu emitters, %ld pulses unassigned, %.1f ms\n",
-                    res.clusters, res.emitters.size(), unassigned, ms_since(t0));
+        std::printf("pipeline %d clusters -> %zu emitters, %ld pulses unassigned, %.1f ms "
+                    "(clustering %.1f, PRI %.1f)\n",
+                    res.clusters, res.emitters.size(), unassigned, ms_since(t0), res.cluster_ms,
+                    res.pri_ms);
 
         // Identification is optional: without a library every emitter is just UNKNOWN.
         std::vector<esm::IdResult> ids(res.emitters.size());
@@ -136,7 +138,7 @@ int main(int argc, char** argv) {
                 std::snprintf(pri, sizeof(pri), "jitter %.1f +/-%.1f%%", e.pri_us, 100.0 * e.jitter);
             } else if (e.pri_type == esm::PriType::Stagger) {
                 std::string s = "stagger";
-                for (double v : e.stagger_us) s += " " + std::to_string(static_cast<int>(v + 0.5));
+                for (double v : e.stagger_us) s += " " + std::to_string(std::lround(v));
                 std::snprintf(pri, sizeof(pri), "%s", s.c_str());
             } else {
                 std::snprintf(pri, sizeof(pri), "constant %.2f", e.pri_us);

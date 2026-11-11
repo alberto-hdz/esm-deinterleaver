@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 namespace esm {
@@ -25,7 +26,7 @@ struct PriParams {
     double jitter_share = 0.4;    // jitter pass: share of gaps that must agree on one PRI
 };
 
-enum class PriType { Constant, Stagger, Jitter };
+enum class PriType : std::uint8_t { Constant, Stagger, Jitter };
 
 // One pulse train pulled out of the stream (indices into the TOA vector).
 // For a stagger, pri_us is the full frame period and stagger_us holds the
@@ -57,7 +58,7 @@ std::vector<PulseTrain> sequence_search(const std::vector<double>& toa,
 
 // Several trains at the same PRI with different phases are one staggered emitter.
 // Merges them and works out the intervals inside the frame.
-PulseTrain merge_stagger(const std::vector<double>& toa, std::vector<PulseTrain> trains,
+PulseTrain merge_stagger(const std::vector<double>& toa, const std::vector<PulseTrain>& trains,
                          double frame_us);
 
 // Jitter pass helper: if most gaps between the available pulses agree on one PRI

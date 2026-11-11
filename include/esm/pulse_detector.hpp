@@ -19,6 +19,8 @@ struct DetectorParams {
     double on_db = 6.0;       // pulse starts when smoothed power is this far over the noise
     double off_db = 3.0;      // ...and ends when it drops below this (hysteresis)
     int min_samples = 10;     // shorter blips are noise, not pulses
+    double merge_gap_us = 0.2;  // rejoin pieces of one pulse closer than this...
+    double merge_rf_mhz = 2.0;  // ...if they're on the same frequency
 };
 
 struct DetectorStats {

@@ -15,11 +15,14 @@ constexpr double kPi = 3.14159265358979323846;
 
 // Linear interpolation of where the signal crosses `level` between samples i and i + 1.
 // This is what gets TOA below one sample period (25 ns at 40 MSPS).
+// The fraction is clamped to [0, 1]: if a noise spike puts both samples on the same
+// side of the level, the straight line through them can land far outside the pair
+// (that once gave a pulse width of -17 us).
 double crossing(const std::vector<double>& s, std::size_t i, double level) {
     const double a = s[i];
     const double b = s[i + 1];
     if (b == a) return static_cast<double>(i);
-    return static_cast<double>(i) + (level - a) / (b - a);
+    return static_cast<double>(i) + std::clamp((level - a) / (b - a), 0.0, 1.0);
 }
 
 }  // namespace
@@ -77,10 +80,16 @@ std::vector<Pdw> detect_pulses(const std::vector<Iq>& x, const DetectorParams& p
             continue;
         }
         // Found a start. Hysteresis: stay "in the pulse" until power drops below the
-        // lower off threshold, so noise riding on top of a pulse can't chop it in two.
+        // lower off threshold and stays there for a full averaging window. At 5 dB SNR
+        // the smoothed power still dips under the off threshold for a few samples now
+        // and then, and without the hold an 8 us pulse came out as 2 or 3 pieces.
         const std::size_t start = i;
-        while (i + half + 1 < n && sm[i] >= off) ++i;
-        const std::size_t stop = i;  // first sample back below off
+        std::size_t below = 0;
+        while (i + half + 1 < n && below < half) {
+            below = sm[i] < off ? below + 1 : 0;
+            ++i;
+        }
+        const std::size_t stop = i - below;  // first sample of the final run below off
         ++segments;
         if (stop - start < static_cast<std::size_t>(p.min_samples)) continue;
         if (start <= half + 1 || stop + half + 2 >= n) continue;  // cut off by the capture edge
@@ -151,11 +160,31 @@ std::vector<Pdw> detect_pulses(const std::vector<Iq>& x, const DetectorParams& p
         out.push_back(d);
     }
 
+    // Near the sensitivity limit (4 dB SNR) noise can pull the power under the off
+    // threshold in the middle of a pulse, and the pulse comes out as two pieces a
+    // microsecond or two apart. The PRI search then saw a "PRI" of 1.7 us. Pieces that
+    // nearly touch and are on the same frequency get joined back into one pulse.
+    std::vector<Pdw> merged;
+    for (const auto& d : out) {
+        if (!merged.empty()) {
+            Pdw& m = merged.back();
+            const double gap = d.toa_us - (m.toa_us + m.pw_us);
+            if (gap < p.merge_gap_us && std::abs(d.freq_mhz - m.freq_mhz) < p.merge_rf_mhz) {
+                const double end = d.toa_us + d.pw_us;
+                m.freq_mhz = (m.freq_mhz * m.pw_us + d.freq_mhz * d.pw_us) / (m.pw_us + d.pw_us);
+                m.amp_db = std::max(m.amp_db, d.amp_db);
+                m.pw_us = end - m.toa_us;
+                continue;
+            }
+        }
+        merged.push_back(d);
+    }
+
     if (stats) {
         stats->noise_power = noise;
         stats->segments = segments;
     }
-    return out;
+    return merged;
 }
 
 }  // namespace esm

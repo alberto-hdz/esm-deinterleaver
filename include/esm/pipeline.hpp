@@ -27,6 +27,8 @@ struct PipelineResult {
     std::vector<Emitter> emitters;
     std::vector<int> pulse_label;  // emitter id per input pulse, -1 = unassigned
     int clusters = 0;
+    double cluster_ms = 0.0;  // time spent in each stage, for benchmarking
+    double pri_ms = 0.0;
 };
 
 // Cluster on RF/AOA/PW, then run PRI deinterleaving inside each cluster.

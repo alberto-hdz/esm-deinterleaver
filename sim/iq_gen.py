@@ -25,7 +25,7 @@ from scenario import pulse_train
 EDGE_S = 25e-9
 
 
-def make_emitters(n, fs_mhz, rng, same_rf_pairs):
+def make_emitters(n, fs_mhz, rng, same_rf_pairs, snr_db=None):
     # Frequency slots 12 MHz apart, more than the clusterer's 10 MHz tolerance.
     # With more emitters than slots, some share a slot and only PW or PRI can
     # separate them, same idea as the forced pairs in scenario.py.
@@ -53,7 +53,7 @@ def make_emitters(n, fs_mhz, rng, same_rf_pairs):
             "pri_us": pri,
             "jitter": jitter,
             "stagger": stagger,
-            "snr_db": float(rng.uniform(8, 25)),
+            "snr_db": float(rng.uniform(8, 25)) if snr_db is None else snr_db,
         })
     for k in range(min(same_rf_pairs, n // 2)):
         a, b = emitters[2 * k], emitters[2 * k + 1]
@@ -70,6 +70,7 @@ def main():
     p.add_argument("--fc-mhz", type=float, default=9000.0)
     p.add_argument("--same-rf-pairs", type=int, default=1)
     p.add_argument("--seed", type=int, default=1)
+    p.add_argument("--snr-db", type=float, help="give every emitter this SNR instead of 8-25 dB")
     p.add_argument("--out", required=True)
     a = p.parse_args()
 
@@ -77,7 +78,7 @@ def main():
     fs = a.fs_mhz * 1e6
     n = int(a.duration_ms * 1e-3 * fs)
     T_us = a.duration_ms * 1000.0
-    emitters = make_emitters(a.emitters, a.fs_mhz, rng, a.same_rf_pairs)
+    emitters = make_emitters(a.emitters, a.fs_mhz, rng, a.same_rf_pairs, a.snr_db)
 
     # complex Gaussian noise, unit power per sample
     x = (rng.standard_normal(n) + 1j * rng.standard_normal(n)) * np.sqrt(0.5)

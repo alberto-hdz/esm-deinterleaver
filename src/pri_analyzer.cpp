@@ -167,7 +167,13 @@ std::vector<PulseTrain> sequence_search(const std::vector<double>& toa,
             // For a jittered train each missed pulse adds another interval of
             // uncertainty, so the jitter pass lets the window grow after a miss.
             const double tol = p.tol_us * (1.0 + p.tol_growth * misses);
+            // Only look after the last pulse in the train. If the PRI is shorter than the
+            // tolerance, the window around the next prediction also covers the pulse I
+            // just added; my first version found that same pulse again forever and ran
+            // out of memory (a 4 dB SNR capture split pulses into pieces 1.7 us apart).
             auto it = std::lower_bound(toa.begin(), toa.end(), expected - tol);
+            const auto after_last = toa.begin() + static_cast<long>(tr.pulses.back()) + 1;
+            if (it < after_last) it = after_last;
             std::size_t best = toa.size();
             double best_err = tol;
             for (; it != toa.end() && *it <= expected + tol; ++it) {
@@ -218,6 +224,7 @@ std::vector<PulseTrain> sequence_search(const std::vector<double>& toa,
         for (auto& m : merged) {
             const TrainFit f = fit_train(toa, m.pulses, m.pri_us);
             std::vector<double> off;
+            off.reserve(tr.pulses.size());
             for (std::size_t j : tr.pulses) off.push_back(wrap(toa[j] - f.t0, f.pri));
             std::nth_element(off.begin(), off.begin() + static_cast<long>(off.size() / 2), off.end());
             if (off[off.size() / 2] <= p.tol_us) {
@@ -254,7 +261,7 @@ std::vector<PulseTrain> sequence_search(const std::vector<double>& toa,
     return full;
 }
 
-PulseTrain merge_stagger(const std::vector<double>& toa, std::vector<PulseTrain> trains,
+PulseTrain merge_stagger(const std::vector<double>& toa, const std::vector<PulseTrain>& trains,
                          double frame_us) {
     // Each train is one "slot" of the stagger pattern, so all of them repeat at the
     // frame period and only their phase is different. I find each slot's phase
@@ -312,8 +319,11 @@ JitterEstimate estimate_jittered_pri(const std::vector<double>& toa,
     };
     double best_tau = 0.0;
     long best_count = 0;
-    for (double tau = std::max(d.front(), p.bin_us); tau <= std::min(d.back(), p.max_pri_us);
-         tau *= 1.005) {
+    const double tau_lo = std::max(d.front(), p.bin_us);
+    const double tau_hi = std::min(d.back(), p.max_pri_us);
+    for (int step = 0;; ++step) {
+        const double tau = tau_lo * std::pow(1.005, step);  // integer counter, so no drift
+        if (tau > tau_hi) break;
         auto [lo, hi] = in_window(tau);
         const long count = hi - lo;
         if (count > best_count) {
@@ -396,7 +406,7 @@ std::vector<PulseTrain> deinterleave(const std::vector<double>& toa, const PriPa
                     double frame = 0.0;
                     for (const auto& t : trains) frame += t.pri_us;
                     frame /= static_cast<double>(trains.size());
-                    auto st = merge_stagger(toa, std::move(trains), frame);
+                    auto st = merge_stagger(toa, trains, frame);
 
                     // If the slots are evenly spaced it was never a stagger. It's one
                     // constant train found at a multiple of its PRI (e.g. 620 us for a

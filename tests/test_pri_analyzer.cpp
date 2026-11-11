@@ -260,3 +260,14 @@ TEST(Deinterleave, ConstantNextToJitterAtHighLoss) {
     }
     EXPECT_TRUE(found);
 }
+
+TEST(SequenceSearch, PriShorterThanToleranceEnds) {
+    // A PRI under the 1.5 us tolerance used to find the same pulse again forever and
+    // run out of memory. This should just return.
+    std::vector<double> toa;
+    for (int k = 0; k < 50; ++k) toa.push_back(1.0 * k);
+    std::vector<bool> avail(toa.size(), true);
+    auto trains = esm::sequence_search(toa, avail, 1.0, {});
+    ASSERT_EQ(trains.size(), 1u);
+    EXPECT_EQ(trains[0].pulses.size(), toa.size());
+}

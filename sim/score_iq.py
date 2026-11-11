@@ -29,10 +29,10 @@ def load(path, *cols):
     return [np.array([float(r[c]) for r in rows]) for c in cols]
 
 
-def score_one(cli, seed, emitters, workdir):
+def score_one(cli, seed, emitters, workdir, extra_args=()):
     out = Path(workdir) / f"iq{seed}"
     subprocess.run([sys.executable, str(GEN), "--emitters", str(emitters), "--seed", str(seed),
-                    "--out", str(out)], check=True, capture_output=True)
+                    "--out", str(out), *extra_args], check=True, capture_output=True)
     cap = (out / "capture.txt").read_text().split()
     subprocess.run([cli, "--iq", str(out / "iq.c64"), *cap, "--pdw-out", str(out / "det.csv"),
                     "--labels", str(out / "labels.csv")], check=True, capture_output=True)

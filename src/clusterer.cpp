@@ -50,20 +50,60 @@ std::vector<int> cluster_pdws(const std::vector<Pdw>& pdws, const ClusterParams&
     std::vector<std::size_t> rank(n);
     for (std::size_t k = 0; k < n; ++k) rank[order[k]] = k;
 
-    // Walk left and right from pulse i in RF order, stopping once RF is out of tolerance.
-    auto neighbors = [&](std::size_t i, std::vector<std::size_t>& out) {
-        out.clear();
+    const auto min_pts = static_cast<std::size_t>(std::max(params.min_pts, 1));
+
+    // Core test: does pulse i have at least min_pts similar pulses (itself included)?
+    // I walk out from i in RF order and stop as soon as I have enough. Inside a dense
+    // cluster that's after a handful of pulses instead of the whole RF window.
+    auto is_core = [&](std::size_t i) {
         const Pdw& p = pdws[i];
-        for (std::size_t k = rank[i] + 1; k-- > 0;) {  // rank[i] down to 0
-            const Pdw& q = pdws[order[k]];
-            if (p.freq_mhz - q.freq_mhz > params.rf_tol_mhz) break;
-            if (similar(p, q, params)) out.push_back(order[k]);
+        std::size_t count = 0;
+        std::size_t lo = rank[i];      // next candidate going left is lo - 1
+        std::size_t hi = rank[i] + 1;  // next candidate going right is hi
+        bool left = true;
+        bool right = true;
+        if (similar(p, p, params)) ++count;
+        while ((left || right) && count < min_pts) {
+            if (left) {
+                if (lo == 0 || p.freq_mhz - pdws[order[lo - 1]].freq_mhz > params.rf_tol_mhz) {
+                    left = false;
+                } else if (similar(p, pdws[order[--lo]], params)) {
+                    ++count;
+                }
+            }
+            if (right && count < min_pts) {
+                if (hi >= n || pdws[order[hi]].freq_mhz - p.freq_mhz > params.rf_tol_mhz) {
+                    right = false;
+                } else if (similar(p, pdws[order[hi++]], params)) {
+                    ++count;
+                }
+            }
         }
-        for (std::size_t k = rank[i] + 1; k < n; ++k) {
-            const Pdw& q = pdws[order[k]];
-            if (q.freq_mhz - p.freq_mhz > params.rf_tol_mhz) break;
-            if (similar(p, q, params)) out.push_back(order[k]);
+        return count >= min_pts;
+    };
+
+    // "Open" pulses (not in a cluster yet) kept as two skip lists over the RF order,
+    // so growing a cluster only visits pulses that could still join it. Without this,
+    // every pulse in a big cluster re-scanned the whole RF window, which made the
+    // clustering O(n^2): 15 s for 67k pulses. nxt[k] is the first open position >= k,
+    // prv[k] is the last open position < k (shifted by one so 0 can mean "none").
+    std::vector<std::size_t> nxt(n + 1);
+    std::vector<std::size_t> prv(n + 1);
+    std::iota(nxt.begin(), nxt.end(), std::size_t{0});
+    std::iota(prv.begin(), prv.end(), std::size_t{0});
+    auto find = [](std::vector<std::size_t>& link, std::size_t k) {
+        std::size_t root = k;
+        while (link[root] != root) root = link[root];
+        while (link[k] != root) {  // path compression, so later lookups are O(1)
+            const std::size_t up = link[k];
+            link[k] = root;
+            k = up;
         }
+        return root;
+    };
+    auto close = [&](std::size_t pos) {
+        nxt[pos] = pos + 1;
+        prv[pos + 1] = pos;
     };
 
     // DBSCAN: a pulse with at least min_pts similar pulses around it is a "core" pulse.
@@ -72,35 +112,41 @@ std::vector<int> cluster_pdws(const std::vector<Pdw>& pdws, const ClusterParams&
     // Pulses that never end up near a core pulse stay as noise; that's where the
     // spurious pulses from the simulator should land.
     std::vector<int> label(n, kUnvisited);
-    std::vector<std::size_t> nbrs;
-    std::vector<std::size_t> nbrs2;
     std::vector<std::size_t> queue;
-    const auto min_pts = static_cast<std::size_t>(std::max(params.min_pts, 1));
     int next_cluster = 0;
 
     for (std::size_t i = 0; i < n; ++i) {
         if (label[i] != kUnvisited) continue;
-        neighbors(i, nbrs);  // includes i itself
-        if (nbrs.size() < min_pts) {
-            label[i] = kNoise;  // may get upgraded to a border pulse later
+        if (!is_core(i)) {
+            label[i] = kNoise;  // stays open: it can still become a border pulse later
             continue;
         }
         const int c = next_cluster++;
         label[i] = c;
-        queue.clear();
-        for (std::size_t j : nbrs) queue.push_back(j);
+        close(rank[i]);
+        queue.assign(1, i);
+
+        // A pulse goes on the queue once, when it's claimed. My first version only set
+        // the label when a pulse came off the queue, so one pulse could be queued by
+        // every one of its neighbors; at 336k pulses that ran out of memory (bad_alloc).
         for (std::size_t q = 0; q < queue.size(); ++q) {
             const std::size_t j = queue[q];
-            if (label[j] == kNoise) label[j] = c;  // border pulse
-            if (label[j] != kUnvisited) continue;
-            label[j] = c;
-            neighbors(j, nbrs2);
-            if (nbrs2.size() >= min_pts) {  // j is a core pulse, keep expanding
-                // only queue pulses not already claimed, otherwise a 1000-pulse
-                // cluster puts ~1M duplicate entries on the queue
-                for (std::size_t m : nbrs2) {
-                    if (label[m] == kUnvisited || label[m] == kNoise) queue.push_back(m);
-                }
+            if (q > 0 && !is_core(j)) continue;  // border pulse: in the cluster, but doesn't grow it
+            const Pdw& p = pdws[j];
+            auto claim = [&](std::size_t pos) {
+                const std::size_t m = order[pos];
+                if (!similar(p, pdws[m], params)) return;
+                if (label[m] == kUnvisited) queue.push_back(m);  // noise pulses become border pulses
+                label[m] = c;
+                close(pos);
+            };
+            for (std::size_t pos = find(prv, rank[j]); pos > 0; pos = find(prv, pos - 1)) {
+                if (p.freq_mhz - pdws[order[pos - 1]].freq_mhz > params.rf_tol_mhz) break;
+                claim(pos - 1);
+            }
+            for (std::size_t pos = find(nxt, rank[j]); pos < n; pos = find(nxt, pos + 1)) {
+                if (pdws[order[pos]].freq_mhz - p.freq_mhz > params.rf_tol_mhz) break;
+                claim(pos);
             }
         }
     }
